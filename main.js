@@ -1,53 +1,121 @@
 const crypto = require('crypto');
+const readlineSync = require('readline-sync');
 
-const moves = process.argv.slice(2);
+class HMACGenerator {
+    constructor() {
+        this.key = crypto.randomBytes(32).toString('hex');
+    }
 
-if (moves.length < 3 || moves.length % 2 === 0) {
-    console.error("Please provide an odd number of moves, with at least 3.");
-    process.exit(1);
+    generateHMAC(message) {
+        const hmac = crypto.createHmac('sha256', this.key);
+        hmac.update(message);
+        return hmac.digest('hex');
+    }
 }
 
-const secretKey = crypto.randomBytes(32).toString('hex');
-
-const computerMoveIndex = Math.floor(Math.random() * moves.length);
-const computerMove = moves[computerMoveIndex];
-const hmac = crypto.createHmac('sha256', secretKey).update(computerMove).digest('hex');
-
-console.log("HMAC (proof of computer's move):", hmac);
-
-const readline = require('readline').createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
-
-readline.question(`Enter your move (${moves.join(', ')}): `, playerMove => {
-    playerMove = playerMove.trim().toLowerCase();
-
-    if (!moves.includes(playerMove)) {
-        console.log(`Invalid move. Please choose from: ${moves.join(', ')}`);
-        readline.close();
-        process.exit(1);
+class GameRules {
+    constructor(moves) {
+        this.moves = moves;
+        this.numMoves = moves.length;
     }
 
-    console.log("Computer's move:", computerMove);
-    console.log("HMAC key:", secretKey);
+    determineWinner(playerMove, computerMove) {
+        const playerIndex = this.moves.indexOf(playerMove);
+        const computerIndex = this.moves.indexOf(computerMove);
+        const half = Math.floor(this.numMoves / 2);
 
-    const playerMoveIndex = moves.indexOf(playerMove);
-    const half = Math.floor(moves.length / 2);
+        if (playerIndex === computerIndex) {
+            return "Draw";
+        } else if ((computerIndex - playerIndex + this.numMoves) % this.numMoves <= half) {
+            return "Lose";
+        } else {
+            return "Win";
+        }
+    }
+}
 
-    let result;
-    if (playerMove === computerMove) {
-        result = "It's a tie!";
-    } else if (
-        (playerMoveIndex < computerMoveIndex && computerMoveIndex - playerMoveIndex <= half) ||
-        (playerMoveIndex > computerMoveIndex && playerMoveIndex - computerMoveIndex > half)
-    ) {
-        result = `Computer wins! You chose ${playerMove}, and the computer chose ${computerMove}.`;
-    } else {
-        result = `You win! You chose ${playerMove}, and the computer chose ${computerMove}.`;
+class GameTable {
+    constructor(moves) {
+        this.moves = moves;
+        this.numMoves = moves.length;
     }
 
-    console.log(result);
+    displayTable() {
+        console.log(' '.repeat(10) + this.moves.join('   '));
+        for (let i = 0; i < this.numMoves; i++) {
+            const row = [this.moves[i]];
+            for (let j = 0; j < this.numMoves; j++) {
+                if (i === j) {
+                    row.push('Draw');
+                } else if ((j - i + this.numMoves) % this.numMoves <= Math.floor(this.numMoves / 2)) {
+                    row.push('Lose');
+                } else {
+                    row.push('Win');
+                }
+            }
+            console.log(row.join('   ')); // Print the row
+        }
+    }
+}
 
-    readline.close();
-});
+class Game {
+    constructor(moves) {
+        if (moves.length < 3 || moves.length % 2 === 0 || new Set(moves).size !== moves.length) {
+            throw new Error('Invalid input. Please provide an odd number (≥ 3) of non-repeating moves.');
+        }
+        this.moves = moves;
+        this.hmacGenerator = new HMACGenerator();
+        this.rules = new GameRules(moves);
+        this.table = new GameTable(moves);
+    }
+
+    play() {
+        const computerMove = this.moves[Math.floor(Math.random() * this.moves.length)];
+        const hmac = this.hmacGenerator.generateHMAC(computerMove);
+        console.log(`HMAC: ${hmac}`);
+
+        while (true) {
+            console.log('Available moves:');
+            this.moves.forEach((move, index) => console.log(`${index + 1} - ${move}`));
+            console.log('0 - Exit');
+            console.log('? - Help');
+
+            const userInput = readlineSync.question('Enter your move: ').trim();
+
+            if (userInput === '?') {
+                this.table.displayTable();
+                continue;
+            }
+
+            if (userInput === '0') {
+                console.log('Goodbye!');
+                break;
+            }
+
+            const userMoveIndex = parseInt(userInput, 10) - 1;
+
+            if (isNaN(userMoveIndex) || userMoveIndex < 0 || userMoveIndex >= this.moves.length) {
+                console.log('Invalid input. Please try again.');
+                continue;
+            }
+
+            const playerMove = this.moves[userMoveIndex];
+            console.log(`Your move: ${playerMove}`);
+            console.log(`Computer's move: ${computerMove}`);
+            console.log(`Result: You ${this.rules.determineWinner(playerMove, computerMove)}`);
+            console.log(`Key: ${this.hmacGenerator.key}`);
+            break;
+        }
+    }
+}
+
+if (process.argv.length < 3) {
+    console.log('Usage: node game.js <move1> <move2> ... <moveN>');
+} else {
+    try {
+        const game = new Game(process.argv.slice(2));
+        game.play();
+    } catch (e) {
+        console.error(e.message);
+    }
+}
